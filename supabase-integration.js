@@ -16,22 +16,22 @@ async function refresh(){
  const machineById=id=>machines.find(x=>x.id===id);
  db.materials=ma.map(x=>({id:x.id,code:x.code,name:x.name,unit:x.unit,price:Number(x.price_per_piece||0),active:x.active}));
  db.models=mo.map(x=>({id:x.id,code:x.code,number:x.number||'',sizeIds:modelSizes.filter(link=>link.model_id===x.id).map(link=>link.size_id),name:x.name||'',machine:machineById(x.machine_id)?.code||'',materialId:x.default_material_id||'',limit:Number(x.loss_limit||1),active:x.active}));
- db.losses=lo.map(x=>({id:x.id,date:x.occurred_at,modelId:x.model_id,modelCode:x.model_code_snapshot||'',materialId:x.material_id,materialCode:x.material_code_snapshot||'',reason:x.reason||'',sizeId:x.size_id||null,sizeLabel:x.size_label_snapshot||sizes.find(sz=>sz.id===x.size_id)?.label||'',qty:Number(x.quantity||0),unit:'peça(s)',normalizedQty:Number(x.quantity||0),costUnit:Number(x.unit_cost||0),cost:Number(x.total_cost??(Number(x.quantity||0)*Number(x.unit_cost||0))),machine:x.machine_code_snapshot||machineById(x.machine_id)?.code||'',notes:x.notes||'',photo:'',createdBy:x.created_by,photoPath:x.photo_path}));
+ db.losses=lo.map(x=>({id:x.id,date:x.occurred_at,modelId:x.model_id,modelCode:x.model_code_snapshot||'',materialId:x.material_id,materialCode:x.material_code_snapshot||'',reason:x.reason||'',sizeId:x.size_id||null,sizeLabel:x.size_label_snapshot||sizes.find(sz=>sz.id===x.size_id)?.label||'',qty:Number(x.quantity||0),unit:'peça(s)',normalizedQty:Number(x.quantity||0),costUnit:Number(x.unit_cost||0),cost:Number(x.total_cost??(Number(x.quantity||0)*Number(x.unit_cost||0))),machine:x.machine_code_snapshot||machineById(x.machine_id)?.code||'',notes:x.notes||'',photo:'',createdBy:x.created_by,photoPath:x.photo_path,shift:x.shift??null}));
  db.users=[];
  if(currentUser?.role==='admin'){
-  const {data,error}=await supabase.from('profiles').select('id,username,email,full_name,role,active');
+  const {data,error}=await supabase.from('profiles').select('id,username,email,full_name,role,active,shift');
   if(error)throw error;
-  db.users=(data||[]).map(p=>({id:p.id,username:p.username,email:p.email||'',name:p.full_name||p.username,role:p.role,active:p.active}));
+  db.users=(data||[]).map(p=>({id:p.id,username:p.username,email:p.email||'',name:p.full_name||p.username,role:p.role,active:p.active,shift:p.shift??null}));
  }
  renderAll();refreshLossForm();renderLossSizes();renderSizeAdmin();renderModelSizes();
 }
 async function startSession(user){
- const {data:profile,error}=await supabase.from('profiles').select('id,username,full_name,role,active').eq('id',user.id).single();
+ const {data:profile,error}=await supabase.from('profiles').select('id,username,full_name,role,active,shift').eq('id',user.id).single();
  if(error)throw error;
  if(!profile?.active)throw new Error('Perfil desativado. Solicite acesso ao administrador.');
  authUser=user;
- currentUser={id:user.id,username:profile.username,name:profile.full_name||profile.username,role:profile.role};
- await refresh();
+ currentUser={id:user.id,username:profile.username,name:profile.full_name||profile.username,role:profile.role,shift:profile.shift??null};
+ await refresh();if(profile.shift)$('lossShift').value=String(profile.shift);
  $('loginScreen').classList.add('hidden');$('app').classList.remove('hidden');applyRole();init();
 }
 function intercept(id,event,handler){$(id).addEventListener(event,async e=>{e.preventDefault();e.stopImmediatePropagation();try{await handler(e);}catch(err){message(err);}},true);}
@@ -70,9 +70,10 @@ intercept('lossForm','submit',async()=>{
  const file=$('lossPhoto').files?.[0];
  if(file)throw new Error('Fotos ainda não estão habilitadas. Remova a foto para salvar a perda.');
  const machine=machines.find(m=>m.code===model.machine);
- const payload={occurred_at:new Date($('lossDate').value).toISOString(),model_id:model.id,model_code_snapshot:model.code,size_id:size.id,size_label_snapshot:size.label,material_id:mat.id,material_code_snapshot:mat.code,machine_id:machine?.id||null,machine_code_snapshot:model.machine||null,reason:$('lossReason').value,quantity:qty,unit_cost:Number(mat.price),notes:$('lossNotes').value.trim(),created_by:authUser.id};
+ const shift=Number($('lossShift').value);if(![1,2,3].includes(shift))throw new Error('Selecione o turno da ocorrência.');
+ const payload={occurred_at:new Date($('lossDate').value).toISOString(),model_id:model.id,model_code_snapshot:model.code,size_id:size.id,size_label_snapshot:size.label,material_id:mat.id,material_code_snapshot:mat.code,machine_id:machine?.id||null,machine_code_snapshot:model.machine||null,reason:$('lossReason').value,quantity:qty,unit_cost:Number(mat.price),notes:$('lossNotes').value.trim(),created_by:authUser.id,shift};
  const r=await supabase.from('losses').insert(payload);if(r.error)throw r.error;
- await refresh();$('lossForm').reset();$('lossPhoto').value='';$('photoPreview').classList.add('hidden');$('lossDate').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);toast('Perda registrada no Supabase.');navigate(currentUser.role==='operator'?'registro':'dashboard');
+ await refresh();$('lossForm').reset();if(currentUser.shift)$('lossShift').value=String(currentUser.shift);$('lossPhoto').value='';$('photoPreview').classList.add('hidden');$('lossDate').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);toast('Perda registrada no Supabase.');navigate(currentUser.role==='operator'?'registro':'dashboard');
 });
 window.deleteLoss=async id=>{if(!isAdmin()||!confirm('Excluir esta ocorrência?'))return;try{const r=await supabase.from('losses').delete().eq('id',id);if(r.error)throw r.error;await refresh();toast('Ocorrência excluída.');}catch(e){message(e);}};
 window.deleteModel=async id=>{if(!isAdmin()||!confirm('Excluir este modelo?'))return;try{const r=await supabase.from('models').delete().eq('id',id);if(r.error)throw r.error;await refresh();toast('Modelo excluído.');}catch(e){message(e);}};
@@ -82,13 +83,13 @@ window.renderUsers=function(){
  if(!$('usersBody'))return;
  const q=($('userSearch')?.value||'').toLowerCase();
  $('usersBody').innerHTML=(db.users||[]).filter(u=>[u.username,u.email,u.name,roleNames[u.role]||u.role].join(' ').toLowerCase().includes(q)).map(u=>
- `<tr><td><strong>${esc(u.username)}</strong></td><td>${esc(u.email||'—')}</td><td>${esc(u.name)}</td><td>${esc(roleNames[u.role]||u.role)}</td><td><span class="pill ${u.active?'ok':'warn'}">${u.active?'Ativo':'Inativo'}</span></td><td class="no-print"><button class="btn secondary" onclick="editUser('${u.id}')">Editar</button></td></tr>`).join('');
+ `<tr><td><strong>${esc(u.username)}</strong></td><td>${esc(u.email||'—')}</td><td>${esc(u.name)}</td><td>${esc(roleNames[u.role]||u.role)}</td><td>${u.shift?u.shift+'º Turno':'—'}</td><td><span class="pill ${u.active?'ok':'warn'}">${u.active?'Ativo':'Inativo'}</span></td><td class="no-print"><button class="btn secondary" onclick="editUser('${u.id}')">Editar</button></td></tr>`).join('');
 };
 window.resetUserForm=function(){
  $('userForm').reset();$('userId').value='';$('newUsername').disabled=false;$('newUserEmail').disabled=false;
  $('newUserPassword').disabled=false;$('newUserPassword').required=true;$('newUserPassword').minLength=8;
  $('passwordRequiredLabel').textContent='*';$('newUserPassword').placeholder='Mínimo de 8 caracteres';
- $('newUserRole').value='operator';$('newUserActive').value='true';$('userFormTitle').textContent='Cadastrar usuário';
+ $('newUserRole').value='operator';$('newUserShift').value='';$('newUserActive').value='true';$('userFormTitle').textContent='Cadastrar usuário';
 };
 window.editUser=function(id){
  const u=(db.users||[]).find(x=>x.id===id);if(!u)return;
@@ -97,7 +98,7 @@ window.editUser=function(id){
  $('newUserName').value=u.name;$('newUserPassword').value='';$('newUserPassword').required=false;
  $('newUserPassword').disabled=true;$('passwordRequiredLabel').textContent='(gerenciada pelo Supabase Auth)';
  $('newUserPassword').placeholder='Senha não editável aqui';
- $('newUserRole').value=u.role;$('newUserActive').value=String(u.active);
+ $('newUserRole').value=u.role;$('newUserShift').value=u.shift?String(u.shift):'';$('newUserActive').value=String(u.active);
  $('userFormTitle').textContent='Editar usuário';window.scrollTo({top:0,behavior:'smooth'});
 };
 async function createAccount(payload){
@@ -116,17 +117,17 @@ intercept('userForm','submit',async()=>{
  const id=$('userId').value;
  const username=$('newUsername').value.trim().toLowerCase(),email=$('newUserEmail').value.trim().toLowerCase();
  const name=$('newUserName').value.trim(),password=$('newUserPassword').value;
- const role=$('newUserRole').value,active=$('newUserActive').value==='true';
+ const role=$('newUserRole').value,active=$('newUserActive').value==='true',shift=$('newUserShift').value?Number($('newUserShift').value):null;
  if(!/^[a-z0-9._-]{3,}$/.test(username))throw new Error('Usuário deve ter pelo menos 3 caracteres: letras, números, ponto, hífen ou sublinhado.');
  if(!name)throw new Error('Informe o nome completo.');
  if(!['admin','operator','viewer'].includes(role))throw new Error('Perfil inválido.');
  if(!id){
    if(!email||!$('newUserEmail').checkValidity())throw new Error('Informe um e-mail válido.');
    if(password.length<8)throw new Error('A senha inicial deve ter no mínimo 8 caracteres.');
-   await createAccount({username,email,full_name:name,password,role,active});
+   await createAccount({username,email,full_name:name,password,role,active,shift});
  }else{
    if(id===authUser.id&&(!active||role!=='admin'))throw new Error('Não é possível retirar seu próprio acesso administrativo.');
-   const r=await supabase.from('profiles').update({full_name:name,role,active}).eq('id',id);
+   const r=await supabase.from('profiles').update({full_name:name,role,active,shift}).eq('id',id);
    if(r.error)throw r.error;
  }
  await refresh();resetUserForm();toast(id?'Perfil atualizado.':'Usuário criado. Já pode entrar com o e-mail e a senha inicial.');
