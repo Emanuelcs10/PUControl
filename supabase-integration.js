@@ -31,7 +31,7 @@ async function startSession(user){
  if(!profile?.active)throw new Error('Perfil desativado. Solicite acesso ao administrador.');
  authUser=user;
  currentUser={id:user.id,username:profile.username,name:profile.full_name||profile.username,role:profile.role,shift:profile.shift??null};
- await refresh();if(profile.shift)$('lossShift').value=String(profile.shift);
+ await refresh();if($('lossUserShift'))$('lossUserShift').textContent=profile.shift?profile.shift+'º Turno (definido no cadastro do usuário)':'Sem turno cadastrado. Solicite ao administrador que defina seu turno.';
  $('loginScreen').classList.add('hidden');$('app').classList.remove('hidden');applyRole();init();
 }
 function intercept(id,event,handler){$(id).addEventListener(event,async e=>{e.preventDefault();e.stopImmediatePropagation();try{await handler(e);}catch(err){message(err);}},true);}
@@ -70,10 +70,10 @@ intercept('lossForm','submit',async()=>{
  const file=$('lossPhoto').files?.[0];
  if(file)throw new Error('Fotos ainda não estão habilitadas. Remova a foto para salvar a perda.');
  const machine=machines.find(m=>m.code===model.machine);
- const shift=Number($('lossShift').value);if(![1,2,3].includes(shift))throw new Error('Selecione o turno da ocorrência.');
+ const shift=Number(currentUser?.shift);if(![1,2,3].includes(shift))throw new Error('Seu usuário não possui turno cadastrado. Solicite ao administrador que defina seu turno em Usuários e acessos.');
  const payload={occurred_at:new Date($('lossDate').value).toISOString(),model_id:model.id,model_code_snapshot:model.code,size_id:size.id,size_label_snapshot:size.label,material_id:mat.id,material_code_snapshot:mat.code,machine_id:machine?.id||null,machine_code_snapshot:model.machine||null,reason:$('lossReason').value,quantity:qty,unit_cost:Number(mat.price),notes:$('lossNotes').value.trim(),created_by:authUser.id,shift};
  const r=await supabase.from('losses').insert(payload);if(r.error)throw r.error;
- await refresh();$('lossForm').reset();if(currentUser.shift)$('lossShift').value=String(currentUser.shift);$('lossPhoto').value='';$('photoPreview').classList.add('hidden');$('lossDate').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);toast('Perda registrada no Supabase.');navigate(currentUser.role==='operator'?'registro':'dashboard');
+ await refresh();$('lossForm').reset();$('lossPhoto').value='';$('photoPreview').classList.add('hidden');$('lossDate').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);toast('Perda registrada no Supabase.');navigate(currentUser.role==='operator'?'registro':'dashboard');
 });
 window.deleteLoss=async id=>{if(!isAdmin()||!confirm('Excluir esta ocorrência?'))return;try{const r=await supabase.from('losses').delete().eq('id',id);if(r.error)throw r.error;await refresh();toast('Ocorrência excluída.');}catch(e){message(e);}};
 window.deleteModel=async id=>{if(!isAdmin()||!confirm('Excluir este modelo?'))return;try{const r=await supabase.from('models').delete().eq('id',id);if(r.error)throw r.error;await refresh();toast('Modelo excluído.');}catch(e){message(e);}};
@@ -89,7 +89,7 @@ window.resetUserForm=function(){
  $('userForm').reset();$('userId').value='';$('newUsername').disabled=false;$('newUserEmail').disabled=false;
  $('newUserPassword').disabled=false;$('newUserPassword').required=true;$('newUserPassword').minLength=8;
  $('passwordRequiredLabel').textContent='*';$('newUserPassword').placeholder='Mínimo de 8 caracteres';
- $('newUserRole').value='operator';$('newUserShift').value='';$('newUserActive').value='true';$('userFormTitle').textContent='Cadastrar usuário';
+ $('newUserRole').value='operator';$('newUserShift').value='1';$('newUserActive').value='true';$('userFormTitle').textContent='Cadastrar usuário';
 };
 window.editUser=function(id){
  const u=(db.users||[]).find(x=>x.id===id);if(!u)return;
@@ -120,6 +120,7 @@ intercept('userForm','submit',async()=>{
  const role=$('newUserRole').value,active=$('newUserActive').value==='true',shift=$('newUserShift').value?Number($('newUserShift').value):null;
  if(!/^[a-z0-9._-]{3,}$/.test(username))throw new Error('Usuário deve ter pelo menos 3 caracteres: letras, números, ponto, hífen ou sublinhado.');
  if(!name)throw new Error('Informe o nome completo.');
+ if(![1,2,3].includes(shift))throw new Error('Selecione o 1º, 2º ou 3º Turno para o colaborador.');
  if(!['admin','operator','viewer'].includes(role))throw new Error('Perfil inválido.');
  if(!id){
    if(!email||!$('newUserEmail').checkValidity())throw new Error('Informe um e-mail válido.');
